@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hand Tracking Drawing App</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="toolbar">
+            <button class="tool-button" id="info-tool">ℹ️</button>
+            <button class="tool-button" id="line-tool">Line</button>
+            <button class="tool-button" id="draw-tool">Draw</button>
+            <button class="tool-button" id="rectangle-tool">Rectangle</button>
+            <button class="tool-button" id="drag-tool">Drag</button>
+            <button class="tool-button" id="rotate-tool">Rotate</button>
+            <button class="tool-button" id="resize-tool">Resize</button>
+            <button class="tool-button" id="erase-tool">Erase</button>
+            <button class="tool-button" id="undo-tool">Undo</button>
+            <button class="tool-button" id="redo-tool">Redo</button>
+            <button class="tool-button" id="save-tool">💾</button>
+            
+            <div class="brush-size-palette">
+                <div class="size-label">Size:</div>
+                <button class="size-button" id="small-size" data-size="2" title="Small"></button>
+                <button class="size-button active" id="medium-size" data-size="4" title="Medium"></button>
+                <button class="size-button" id="large-size" data-size="8" title="Large"></button>
+            </div>
+            
+            <div class="color-palette">
+                <div class="color-label">Colors:</div>
+                <button class="color-button active" id="cyan-color" data-color="#00ffff" style="background-color: #00ffff;"></button>
+                <button class="color-button" id="magenta-color" data-color="#ff00ff" style="background-color: #ff00ff;"></button>
+                <button class="color-button" id="yellow-color" data-color="#ffff00" style="background-color: #ffff00;"></button>
+                <button class="color-button" id="black-color" data-color="#000000" style="background-color: #000000;"></button>
+                <button class="color-button" id="white-color" data-color="#ffffff" style="background-color: #ffffff;"></button>
+            </div>
+        </div>
+        
+        <!-- Info Modal -->
+        <div id="info-modal" class="info-modal">
+            <div class="info-modal-content">
+                <h3>How to Use Hand Tracking Drawing</h3>
+                <ul>
+                    <li><strong>Select a tool:</strong> Line, Draw, Rectangle, Drag, Rotate, or Resize</li>
+                    <li><strong>Choose a color:</strong> Click any color from the palette</li>
+                    <li><strong>Select brush size:</strong> Small, Medium, or Large</li>
+                    <li><strong>Start drawing:</strong> Pinch thumb and index finger together</li>
+                    <li><strong>Move objects:</strong> Use Drag tool to select and move drawings</li>
+                    <li><strong>Rotate objects:</strong> Use Rotate tool, pinch to select, then twist your hand</li>
+                    <li><strong>Resize objects:</strong> Use Resize tool, pinch to select, then spread/close your other fingers</li>
+                    <li><strong>Save your work:</strong> Click the save button (💾) to download as PNG</li>
+                    <li><strong>Undo/Redo:</strong> Use buttons to reverse or restore actions</li>
+                    <li><strong>Deselect tool:</strong> Click the active tool again to turn it off</li>
+                </ul>
+                <button id="close-info" class="close-button">Got it!</button>
+            </div>
+        </div>
+        
+        <div class="video-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas"></canvas>
+        </div>
+        
+        <div id="status" class="status loading">
+            Loading MediaPipe libraries...
+        </div>
+    </div>
+
+    <!-- MediaPipe Hands -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="app.js"></script>
+</body>
+</html> 
