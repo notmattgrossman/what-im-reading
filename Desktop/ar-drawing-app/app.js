@@ -53,6 +53,15 @@ let hands, camera;
 let currentTool = null;
 let currentColor = '#00ffff'; // Default to cyan
 let currentBrushSize = 4; // Default to medium brush size
+let currentOpacity = 1.0; // Default to full opacity
+
+// Shape tool state
+let currentShape = 'rectangle'; // Default shape
+let currentFillMode = 'outline'; // 'outline' or 'filled'
+
+// Background state
+let backgroundMode = 'camera'; // 'camera' or 'solid'
+let backgroundColor = '#ffffff'; // Default background color
 
 // Drawing data
 let drawnObjects = [];
@@ -75,6 +84,10 @@ let resizeStartScale = null;
 // Hand tracking state
 let handPinchStates = new Map();
 let handPositionHistory = new Map();
+
+// Crazy mode state
+let crazyModeActive = false;
+let crazyModeDrawings = new Map(); // Map of handIndex -> Map of fingertipIndex -> drawing data
 
 // Mouse simulation state
 let mouseState = {
@@ -181,6 +194,18 @@ function distanceToLine(px, py, x1, y1, x2, y2) {
 // =============================================================================
 
 /**
+ * Clear canvas with appropriate background
+ */
+function clearCanvas() {
+    if (backgroundMode === 'solid') {
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+}
+
+/**
  * Set canvas dimensions to match viewport
  */
 function resizeCanvas() {
@@ -249,13 +274,29 @@ function drawObjects() {
     activeDrawing.forEach(obj => {
         drawSingleObject(obj, obj.color, obj.width);
     });
+    
+    // Draw crazy mode drawings
+    if (crazyModeActive) {
+        crazyModeDrawings.forEach((handDrawings, handIndex) => {
+            handDrawings.forEach((drawing, fingertipIndex) => {
+                if (drawing.points && drawing.points.length > 1) {
+                    drawSingleObject(drawing, drawing.color, drawing.width);
+                }
+            });
+        });
+    }
 }
 
 /**
  * Draw a single object with given style
  */
 function drawSingleObject(obj, color, width) {
+    // Apply opacity if object has it, otherwise use current opacity
+    const opacity = obj.opacity !== undefined ? obj.opacity : currentOpacity;
+    ctx.globalAlpha = opacity;
+    
     ctx.strokeStyle = color;
+    ctx.fillStyle = color;
     ctx.lineWidth = width;
     ctx.lineCap = 'round';
     
@@ -271,9 +312,62 @@ function drawSingleObject(obj, color, width) {
             ctx.lineTo(obj.points[i].x, obj.points[i].y);
         }
         ctx.stroke();
+    } else if (obj.type === 'shape') {
+        const centerX = (obj.startX + obj.endX) / 2;
+        const centerY = (obj.startY + obj.endY) / 2;
+        const width = Math.abs(obj.endX - obj.startX);
+        const height = Math.abs(obj.endY - obj.startY);
+        
+        ctx.beginPath();
+        
+        if (obj.shape === 'rectangle') {
+            ctx.rect(obj.startX, obj.startY, obj.endX - obj.startX, obj.endY - obj.startY);
+        } else if (obj.shape === 'circle') {
+            const radius = Math.min(width, height) / 2;
+            ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+        } else if (obj.shape === 'oval') {
+            ctx.ellipse(centerX, centerY, width / 2, height / 2, 0, 0, 2 * Math.PI);
+        } else if (obj.shape === 'star') {
+            drawStar(ctx, centerX, centerY, 5, Math.min(width, height) / 2, Math.min(width, height) / 4);
+        }
+        
+        if (obj.fillMode === 'filled') {
+            ctx.fill();
+        } else {
+            ctx.stroke();
+        }
     } else if (obj.type === 'rectangle') {
+        // Legacy rectangle support
         ctx.strokeRect(obj.startX, obj.startY, obj.endX - obj.startX, obj.endY - obj.startY);
     }
+    
+    // Reset opacity to default
+    ctx.globalAlpha = 1.0;
+}
+
+/**
+ * Helper function to draw a star shape
+ */
+function drawStar(ctx, cx, cy, spikes, outerRadius, innerRadius) {
+    let rot = Math.PI / 2 * 3;
+    let x = cx;
+    let y = cy;
+    const step = Math.PI / spikes;
+
+    ctx.moveTo(cx, cy - outerRadius);
+    for (let i = 0; i < spikes; i++) {
+        x = cx + Math.cos(rot) * outerRadius;
+        y = cy + Math.sin(rot) * outerRadius;
+        ctx.lineTo(x, y);
+        rot += step;
+
+        x = cx + Math.cos(rot) * innerRadius;
+        y = cy + Math.sin(rot) * innerRadius;
+        ctx.lineTo(x, y);
+        rot += step;
+    }
+    ctx.lineTo(cx, cy - outerRadius);
+    ctx.closePath();
 }
 
 /**
@@ -354,7 +448,7 @@ function drawMouseCursor(x, y) {
  */
 function redrawForMouse() {
     if (currentTool !== null) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        clearCanvas();
         drawObjects();
         if (mouseState.isPressed) {
             drawMouseCursor(mouseState.position.x, mouseState.position.y);
@@ -375,7 +469,7 @@ function getObjectCenter(obj) {
             x: (obj.startX + obj.endX) / 2,
             y: (obj.startY + obj.endY) / 2
         };
-    } else if (obj.type === 'rectangle') {
+    } else if (obj.type === 'rectangle' || obj.type === 'shape') {
         return {
             x: (obj.startX + obj.endX) / 2,
             y: (obj.startY + obj.endY) / 2
@@ -403,11 +497,43 @@ function isPointInObject(x, y, obj) {
     if (obj.type === 'line') {
         return distanceToLine(x, y, obj.startX, obj.startY, obj.endX, obj.endY) <= tolerance;
     } else if (obj.type === 'rectangle') {
+        // Legacy rectangle support
         const minX = Math.min(obj.startX, obj.endX) - tolerance;
         const maxX = Math.max(obj.startX, obj.endX) + tolerance;
         const minY = Math.min(obj.startY, obj.endY) - tolerance;
         const maxY = Math.max(obj.startY, obj.endY) + tolerance;
         return x >= minX && x <= maxX && y >= minY && y <= maxY;
+    } else if (obj.type === 'shape') {
+        const centerX = (obj.startX + obj.endX) / 2;
+        const centerY = (obj.startY + obj.endY) / 2;
+        const width = Math.abs(obj.endX - obj.startX);
+        const height = Math.abs(obj.endY - obj.startY);
+        
+        if (obj.shape === 'rectangle') {
+            const minX = Math.min(obj.startX, obj.endX) - tolerance;
+            const maxX = Math.max(obj.startX, obj.endX) + tolerance;
+            const minY = Math.min(obj.startY, obj.endY) - tolerance;
+            const maxY = Math.max(obj.startY, obj.endY) + tolerance;
+            return x >= minX && x <= maxX && y >= minY && y <= maxY;
+        } else if (obj.shape === 'circle') {
+            const radius = Math.min(width, height) / 2 + tolerance;
+            const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+            return distance <= radius;
+        } else if (obj.shape === 'oval') {
+            // Simplified ellipse hit detection using bounding box
+            const minX = Math.min(obj.startX, obj.endX) - tolerance;
+            const maxX = Math.max(obj.startX, obj.endX) + tolerance;
+            const minY = Math.min(obj.startY, obj.endY) - tolerance;
+            const maxY = Math.max(obj.startY, obj.endY) + tolerance;
+            return x >= minX && x <= maxX && y >= minY && y <= maxY;
+        } else if (obj.shape === 'star') {
+            // Simplified star hit detection using bounding box
+            const minX = Math.min(obj.startX, obj.endX) - tolerance;
+            const maxX = Math.max(obj.startX, obj.endX) + tolerance;
+            const minY = Math.min(obj.startY, obj.endY) - tolerance;
+            const maxY = Math.max(obj.startY, obj.endY) + tolerance;
+            return x >= minX && x <= maxX && y >= minY && y <= maxY;
+        }
     } else if (obj.type === 'path') {
         for (let i = 0; i < obj.points.length - 1; i++) {
             const p1 = obj.points[i];
@@ -416,7 +542,6 @@ function isPointInObject(x, y, obj) {
                 return true;
             }
         }
-        return false;
     }
     return false;
 }
@@ -442,7 +567,7 @@ function moveObject(obj, deltaX, deltaY) {
         obj.startY += deltaY;
         obj.endX += deltaX;
         obj.endY += deltaY;
-    } else if (obj.type === 'rectangle') {
+    } else if (obj.type === 'rectangle' || obj.type === 'shape') {
         obj.startX += deltaX;
         obj.startY += deltaY;
         obj.endX += deltaX;
@@ -648,7 +773,7 @@ function undoLastCommand() {
         }
     }
     
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    clearCanvas();
     drawObjects();
     
     const actionName = lastCommand.type === COMMAND_TYPES.DRAW ? 'drawing' : 
@@ -723,6 +848,50 @@ function redoLastCommand() {
 // =============================================================================
 // DRAWING LOGIC
 // =============================================================================
+
+/**
+ * Handle crazy mode drawing - all fingertips draw continuously
+ */
+function handleCrazyModeDrawing(handIndex, landmarks) {
+    if (!crazyModeActive || currentTool !== 'crazy') {
+        return;
+    }
+    
+    // Initialize crazy mode drawings for this hand if not exists
+    if (!crazyModeDrawings.has(handIndex)) {
+        crazyModeDrawings.set(handIndex, new Map());
+    }
+    
+    const handDrawings = crazyModeDrawings.get(handIndex);
+    
+    // Process each fingertip
+    Object.entries(FINGERTIP_INDICES).forEach(([fingerName, fingertipIndex]) => {
+        const fingertip = landmarks[fingertipIndex];
+        const currentPos = {
+            x: fingertip.x * canvas.width,
+            y: fingertip.y * canvas.height
+        };
+        
+        // Create unique drawing ID for this fingertip
+        const drawingId = `${handIndex}_${fingertipIndex}`;
+        
+        if (!handDrawings.has(fingertipIndex)) {
+            // Start new drawing for this fingertip
+            handDrawings.set(fingertipIndex, {
+                type: 'path',
+                points: [currentPos],
+                color: currentColor,
+                width: currentBrushSize,
+                opacity: currentOpacity,
+                id: generateObjectId()
+            });
+        } else {
+            // Continue existing drawing
+            const drawing = handDrawings.get(fingertipIndex);
+            drawing.points.push(currentPos);
+        }
+    });
+}
 
 /**
  * Handle drawing based on pinch state changes
@@ -933,6 +1102,7 @@ function handleDrawingLogic(handIndex, currentPos, isPressed, wasPressed, handRo
                 endY: currentPos.y,
                 color: currentColor,
                 width: currentBrushSize,
+                opacity: currentOpacity,
                 id: generateObjectId()
             });
         } else if (currentTool === 'draw') {
@@ -941,9 +1111,25 @@ function handleDrawingLogic(handIndex, currentPos, isPressed, wasPressed, handRo
                 points: [{x: currentPos.x, y: currentPos.y}],
                 color: currentColor,
                 width: currentBrushSize,
+                opacity: currentOpacity,
+                id: generateObjectId()
+            });
+        } else if (currentTool === 'shapes') {
+            activeDrawing.set(handIndex, {
+                type: 'shape',
+                shape: currentShape,
+                fillMode: currentFillMode,
+                startX: currentPos.x,
+                startY: currentPos.y,
+                endX: currentPos.x,
+                endY: currentPos.y,
+                color: currentColor,
+                width: currentBrushSize,
+                opacity: currentOpacity,
                 id: generateObjectId()
             });
         } else if (currentTool === 'rectangle') {
+            // Legacy rectangle support
             activeDrawing.set(handIndex, {
                 type: 'rectangle',
                 startX: currentPos.x,
@@ -952,6 +1138,7 @@ function handleDrawingLogic(handIndex, currentPos, isPressed, wasPressed, handRo
                 endY: currentPos.y,
                 color: currentColor,
                 width: currentBrushSize,
+                opacity: currentOpacity,
                 id: generateObjectId()
             });
         }
@@ -963,7 +1150,7 @@ function handleDrawingLogic(handIndex, currentPos, isPressed, wasPressed, handRo
                 drawing.endY = currentPos.y;
             } else if (drawing.type === 'path') {
                 drawing.points.push({x: currentPos.x, y: currentPos.y});
-            } else if (drawing.type === 'rectangle') {
+            } else if (drawing.type === 'rectangle' || drawing.type === 'shape') {
                 drawing.endX = currentPos.x;
                 drawing.endY = currentPos.y;
             }
@@ -996,6 +1183,17 @@ function selectTool(toolName) {
     if (currentTool === toolName) {
         currentTool = null;
         document.getElementById(`${toolName}-tool`).classList.remove('active');
+        
+        // Deactivate crazy mode
+        if (toolName === 'crazy') {
+            crazyModeActive = false;
+            crazyModeDrawings.clear();
+        }
+        
+        // Hide shapes palette when shapes tool is deactivated
+        if (toolName === 'shapes') {
+            document.querySelector('.shape-controls').classList.remove('show');
+        }
     } else {
         currentTool = toolName;
         
@@ -1004,7 +1202,55 @@ function selectTool(toolName) {
         });
         
         document.getElementById(`${toolName}-tool`).classList.add('active');
+        
+        // Show/hide shapes palette based on tool selection
+        const shapesToolActive = toolName === 'shapes';
+        const shapeControls = document.querySelector('.shape-controls');
+        
+        if (shapesToolActive) {
+            shapeControls.classList.add('show');
+        } else {
+            shapeControls.classList.remove('show');
+        }
+        
+        // Activate crazy mode
+        if (toolName === 'crazy') {
+            crazyModeActive = true;
+            crazyModeDrawings.clear(); // Clear any previous crazy mode drawings
+        } else {
+            crazyModeActive = false;
+        }
     }
+    
+    updateToolStatus();
+}
+
+/**
+ * Select shape for shapes tool
+ */
+function selectShape(shape) {
+    currentShape = shape;
+    
+    // Update button states
+    document.querySelectorAll('.shape-button').forEach(button => {
+        button.classList.remove('active');
+    });
+    document.getElementById(`${shape}-shape`).classList.add('active');
+    
+    updateToolStatus();
+}
+
+/**
+ * Select fill mode for shapes tool
+ */
+function selectFillMode(mode) {
+    currentFillMode = mode;
+    
+    // Update button states
+    document.querySelectorAll('.fill-button').forEach(button => {
+        button.classList.remove('active');
+    });
+    document.getElementById(`${mode}-mode`).classList.add('active');
     
     updateToolStatus();
 }
@@ -1036,12 +1282,58 @@ function selectBrushSize(size) {
 }
 
 /**
+ * Opacity selection function
+ */
+function selectOpacity(opacity) {
+    currentOpacity = opacity;
+    
+    document.querySelectorAll('.opacity-button').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    document.querySelector(`[data-opacity="${opacity}"]`).classList.add('active');
+}
+
+/**
+ * Background mode selection function
+ */
+function selectBackgroundMode(mode) {
+    backgroundMode = mode;
+    
+    document.querySelectorAll('.background-button').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    if (mode === 'camera') {
+        document.getElementById('camera-bg').classList.add('active');
+        document.getElementById('bg-color-picker').disabled = true;
+    } else if (mode === 'solid') {
+        document.getElementById('solid-bg').classList.add('active');
+        document.getElementById('bg-color-picker').disabled = false;
+    }
+}
+
+/**
+ * Background color selection function
+ */
+function selectBackgroundColor(color) {
+    backgroundColor = color;
+    document.getElementById('bg-color-picker').value = color;
+}
+
+/**
  * Update status message based on current tool
  */
 function updateToolStatus() {
     if (currentTool === null) {
         statusDiv.textContent = 'No tool selected - click a tool to start drawing';
         statusDiv.className = 'status loading';
+    } else if (currentTool === 'shapes') {
+        statusDiv.textContent = `Shapes tool selected - ${currentShape} (${currentFillMode}) - pinch or click to draw`;
+        statusDiv.className = 'status ready';
+    } else if (currentTool === 'crazy') {
+        statusDiv.textContent = '🔥 CRAZY MODE ACTIVE - All 10 fingertips are drawing continuously!';
+        statusDiv.className = 'status ready';
     } else {
         statusDiv.textContent = `${currentTool.charAt(0).toUpperCase() + currentTool.slice(1)} tool selected - pinch or click to draw`;
         statusDiv.className = 'status ready';
@@ -1179,7 +1471,10 @@ async function initializeCamera() {
  * Handle hand tracking results
  */
 function onHandsResults(results) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    clearCanvas();
+
+    // Collect fingertip data to draw after objects
+    let fingertipData = [];
 
     if (results.multiHandLandmarks) {
         let totalPinches = 0;
@@ -1200,11 +1495,17 @@ function onHandsResults(results) {
                 const isPinched = updatePinchState(handIndex, rawPinching);
                 
                 handleDrawing(handIndex, landmarks, isPinched, wasPinched);
+                handleCrazyModeDrawing(handIndex, landmarks); // Add this line for crazy mode
                 
                 if (isPinched) {
                     totalPinches++;
                 }
-                drawFingertips(landmarks, isPinched);
+                
+                // Store fingertip data for later drawing
+                fingertipData.push({
+                    landmarks: landmarks,
+                    isPinched: isPinched
+                });
             }
         });
 
@@ -1225,6 +1526,23 @@ function onHandsResults(results) {
             if (!currentHandIndices.has(handIndex)) {
                 handPinchStates.delete(handIndex);
                 activeDrawing.delete(handIndex);
+                
+                // Finalize crazy mode drawings for removed hands
+                if (crazyModeActive && crazyModeDrawings.has(handIndex)) {
+                    const handDrawings = crazyModeDrawings.get(handIndex);
+                    handDrawings.forEach((drawing, fingertipIndex) => {
+                        if (drawing.points && drawing.points.length > 1) {
+                            drawnObjects.push({...drawing});
+                            addCommand({
+                                type: COMMAND_TYPES.DRAW,
+                                objectId: drawing.id,
+                                drawingData: {...drawing},
+                                timestamp: Date.now()
+                            });
+                        }
+                    });
+                    crazyModeDrawings.delete(handIndex);
+                }
             }
         }
         
@@ -1253,6 +1571,24 @@ function onHandsResults(results) {
         activeDrawing.delete(mouseState.handIndex);
         handPositionHistory.clear();
         
+        // Finalize all crazy mode drawings when no hands detected
+        if (crazyModeActive && crazyModeDrawings.size > 0) {
+            crazyModeDrawings.forEach((handDrawings, handIndex) => {
+                handDrawings.forEach((drawing, fingertipIndex) => {
+                    if (drawing.points && drawing.points.length > 1) {
+                        drawnObjects.push({...drawing});
+                        addCommand({
+                            type: COMMAND_TYPES.DRAW,
+                            objectId: drawing.id,
+                            drawingData: {...drawing},
+                            timestamp: Date.now()
+                        });
+                    }
+                });
+            });
+            crazyModeDrawings.clear();
+        }
+        
         if (mouseState.isPressed && currentTool !== null) {
             statusDiv.textContent = 'Mouse drawing active - No hands detected';
             statusDiv.className = 'status ready';
@@ -1262,11 +1598,18 @@ function onHandsResults(results) {
         }
     }
 
+    // Draw objects first
     drawObjects();
     
+    // Draw mouse cursor if active
     if (mouseState.isPressed && currentTool !== null) {
         drawMouseCursor(mouseState.position.x, mouseState.position.y);
     }
+    
+    // Draw fingertips on top of everything
+    fingertipData.forEach(data => {
+        drawFingertips(data.landmarks, data.isPinched);
+    });
 }
 
 // =============================================================================
@@ -1306,10 +1649,21 @@ function setupEventListeners() {
     // Tool selection
     document.getElementById('line-tool').addEventListener('click', () => selectTool('line'));
     document.getElementById('draw-tool').addEventListener('click', () => selectTool('draw'));
-    document.getElementById('rectangle-tool').addEventListener('click', () => selectTool('rectangle'));
+    document.getElementById('shapes-tool').addEventListener('click', () => selectTool('shapes'));
     document.getElementById('drag-tool').addEventListener('click', () => selectTool('drag'));
     document.getElementById('rotate-tool').addEventListener('click', () => selectTool('rotate'));
     document.getElementById('resize-tool').addEventListener('click', () => selectTool('resize'));
+    document.getElementById('crazy-tool').addEventListener('click', () => selectTool('crazy'));
+
+    // Shape selection
+    document.getElementById('rectangle-shape').addEventListener('click', () => selectShape('rectangle'));
+    document.getElementById('circle-shape').addEventListener('click', () => selectShape('circle'));
+    document.getElementById('oval-shape').addEventListener('click', () => selectShape('oval'));
+    document.getElementById('star-shape').addEventListener('click', () => selectShape('star'));
+
+    // Fill mode selection
+    document.getElementById('outline-mode').addEventListener('click', () => selectFillMode('outline'));
+    document.getElementById('filled-mode').addEventListener('click', () => selectFillMode('filled'));
 
     // Erase all
     document.getElementById('erase-tool').addEventListener('click', () => {
@@ -1326,7 +1680,7 @@ function setupEventListeners() {
             });
         }
         
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        clearCanvas();
         drawObjects();
         
         statusDiv.textContent = 'All drawings erased!';
@@ -1371,6 +1725,16 @@ function setupEventListeners() {
     document.getElementById('medium-size').addEventListener('click', () => selectBrushSize(4));
     document.getElementById('large-size').addEventListener('click', () => selectBrushSize(8));
     
+    // Opacity selection
+    document.getElementById('low-opacity').addEventListener('click', () => selectOpacity(0.3));
+    document.getElementById('medium-opacity').addEventListener('click', () => selectOpacity(0.6));
+    document.getElementById('high-opacity').addEventListener('click', () => selectOpacity(1.0));
+
+    // Background mode selection
+    document.getElementById('camera-bg').addEventListener('click', () => selectBackgroundMode('camera'));
+    document.getElementById('solid-bg').addEventListener('click', () => selectBackgroundMode('solid'));
+    document.getElementById('bg-color-picker').addEventListener('input', (e) => selectBackgroundColor(e.target.value));
+
     // Save functionality
     document.getElementById('save-tool').addEventListener('click', saveDrawing);
     
@@ -1485,6 +1849,10 @@ window.addEventListener('load', () => {
     
     // Set initial tool status
     updateToolStatus();
+    
+    // Initialize background controls
+    selectBackgroundMode('camera');
+    selectBackgroundColor('#ffffff');
     
     // Start the application
     setTimeout(init, 100);
