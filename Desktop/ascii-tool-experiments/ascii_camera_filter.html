@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCII Camera Filter</title>
+    <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: #66aaff;
+            font-family: 'Courier New', monospace;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .header {
+            display: none;
+        }
+
+        .main-container {
+            flex: 1;
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+            padding: 0;
+            margin: 0;
+        }
+
+        .camera-section {
+            display: none;
+        }
+
+        .ascii-section {
+            flex: 1;
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+            padding: 0;
+            margin: 0;
+        }
+
+        .ascii-container {
+            border: none;
+            border-radius: 0;
+            overflow: hidden;
+            background: transparent;
+            box-shadow: none;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #asciiOutput {
+            font-size: 4px;
+            line-height: 0.7;
+            white-space: pre;
+            padding: 20px;
+            overflow: hidden;
+            background: rgba(0, 20, 40, 0.95);
+            color: #7799cc;
+            display: block;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 0;
+            word-spacing: 0;
+            text-align: center;
+            border: 2px solid #66aaff;
+            border-radius: 15px;
+            box-shadow: 0 0 30px rgba(102, 170, 255, 0.4);
+            backdrop-filter: blur(10px);
+            width: 80vw;
+            max-width: 800px;
+            height: 60vh;
+            max-height: 600px;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 50;
+        }
+
+        .hidden-canvas {
+            display: none;
+        }
+
+        .permission-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 20, 40, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .permission-screen h2 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px #66aaff;
+        }
+
+        .permission-screen p {
+            max-width: 500px;
+            line-height: 1.6;
+            margin-bottom: 30px;
+            opacity: 0.9;
+        }
+
+        .start-btn {
+            background: rgba(102, 170, 255, 0.2);
+            border: 2px solid #66aaff;
+            color: #66aaff;
+            padding: 15px 30px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .start-btn:hover {
+            background: rgba(102, 170, 255, 0.4);
+            box-shadow: 0 0 15px rgba(102, 170, 255, 0.5);
+        }
+
+        .error-message {
+            color: #ff6666;
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ff6666;
+            border-radius: 5px;
+            background: rgba(255, 102, 102, 0.1);
+        }
+
+        /* Color Themes */
+        .theme-classic .ascii-char-0 { color: #223344; }
+        .theme-classic .ascii-char-1 { color: #445588; }
+        .theme-classic .ascii-char-2 { color: #7799cc; }
+        .theme-classic .ascii-char-3 { color: #ccddff; text-shadow: 0 0 2px #ccddff; }
+        .theme-classic .ascii-char-4 { color: #ffffff; text-shadow: 0 0 3px #ffffff; }
+
+        .theme-matrix .ascii-char-0 { color: #001100; }
+        .theme-matrix .ascii-char-1 { color: #003300; }
+        .theme-matrix .ascii-char-2 { color: #00ff00; }
+        .theme-matrix .ascii-char-3 { color: #66ff66; text-shadow: 0 0 2px #00ff00; }
+        .theme-matrix .ascii-char-4 { color: #ffffff; text-shadow: 0 0 3px #00ff00; }
+
+        .theme-amber .ascii-char-0 { color: #331100; }
+        .theme-amber .ascii-char-1 { color: #663300; }
+        .theme-amber .ascii-char-2 { color: #ff6600; }
+        .theme-amber .ascii-char-3 { color: #ff9944; text-shadow: 0 0 2px #ff6600; }
+        .theme-amber .ascii-char-4 { color: #ffcc88; text-shadow: 0 0 3px #ff6600; }
+
+        .theme-rainbow .ascii-char-0 { color: #440044; }
+        .theme-rainbow .ascii-char-1 { color: #8800ff; }
+        .theme-rainbow .ascii-char-2 { color: #0088ff; }
+        .theme-rainbow .ascii-char-3 { color: #00ff88; text-shadow: 0 0 2px #00ff88; }
+        .theme-rainbow .ascii-char-4 { color: #ff8800; text-shadow: 0 0 3px #ff8800; }
+
+        .fps-counter {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px 8px;
+            border-radius: 3px;
+            color: #66aaff;
+        }
+
+        .toolbar {
+            position: fixed;
+            bottom: 8vh;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 20, 40, 0.9);
+            border: 1px solid #66aaff;
+            border-radius: 25px;
+            padding: 15px 25px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            backdrop-filter: blur(10px);
+            z-index: 100;
+            box-shadow: 0 0 20px rgba(102, 170, 255, 0.3);
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 90vw;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+        }
+
+        .select {
+            background: rgba(102, 170, 255, 0.2);
+            border: 1px solid #66aaff;
+            color: #66aaff;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-family: inherit;
+            font-size: 10px;
+            outline: none;
+        }
+
+        .slider {
+            width: 60px;
+            height: 4px;
+            background: rgba(102, 170, 255, 0.3);
+            outline: none;
+            border-radius: 2px;
+            appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #66aaff;
+            cursor: pointer;
+            box-shadow: 0 0 5px rgba(102, 170, 255, 0.5);
+        }
+
+        .btn {
+            background: rgba(102, 170, 255, 0.2);
+            border: 1px solid #66aaff;
+            color: #66aaff;
+            padding: 6px 12px;
+            border-radius: 15px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 11px;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            background: rgba(102, 170, 255, 0.4);
+            box-shadow: 0 0 5px rgba(102, 170, 255, 0.5);
+        }
+
+        .btn.active {
+            background: rgba(102, 170, 255, 0.6);
+            box-shadow: 0 0 8px rgba(102, 170, 255, 0.7);
+        }
+
+        .btn.recording {
+            background: rgba(255, 102, 102, 0.6);
+            border-color: #ff6666;
+            color: #ff6666;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        @media (max-width: 768px) {
+            .main-container {
+                flex-direction: column;
+                padding-top: 140px;
+            }
+            
+            .controls {
+                gap: 8px;
+            }
+            
+            .control-group {
+                font-size: 11px;
+            }
+            
+            .slider {
+                width: 60px;
+            }
+            
+            #asciiOutput {
+                font-size: 3px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="permission-screen" id="permissionScreen">
+        <h2>🎨 ASCII Camera Filter</h2>
+        <p>Transform your camera feed into beautiful ASCII art using the same characters from the virtual pond: █▓▒░</p>
+        <p>This app will request access to your front camera to create real-time ASCII effects. Your video is processed locally in your browser and never sent anywhere.</p>
+        <button class="start-btn" id="startBtn">Start Camera</button>
+        <div id="errorMessage" class="error-message" style="display: none;"></div>
+    </div>
+
+    <div class="main-container">
+        <div class="ascii-section">
+            <div class="ascii-container">
+                <div id="asciiOutput"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toolbar">
+        <div class="control-group">
+            <label>Theme:</label>
+            <select id="themeSelect" class="select">
+                <option value="classic">Classic</option>
+                <option value="matrix">Matrix</option>
+                <option value="amber">Amber</option>
+                <option value="rainbow">Rainbow</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>Style:</label>
+            <select id="charsetSelect" class="select">
+                <option value="blocks">Blocks</option>
+                <option value="dots">Dots</option>
+                <option value="lines">Lines</option>
+                <option value="geometric">Geometric</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>Contrast:</label>
+            <input type="range" id="contrastSlider" class="slider" min="0.5" max="3" value="2.0" step="0.1" />
+            <span id="contrastValue">2.0</span>
+        </div>
+        <div class="control-group">
+            <label>Brightness:</label>
+            <input type="range" id="brightnessSlider" class="slider" min="0.5" max="2" value="1.2" step="0.1" />
+            <span id="brightnessValue">1.2</span>
+        </div>
+        <button id="flipBtn" class="btn active">Flip</button>
+        <button id="negativeBtn" class="btn">Negative</button>
+        <button id="recordBtn" class="btn">Record GIF</button>
+        <button id="downloadBtn" class="btn">Download</button>
+    </div>
+
+    <canvas id="hiddenCanvas" class="hidden-canvas"></canvas>
+    <video id="video" autoplay muted playsinline style="display: none;"></video>
+
+    <script>
+        // ASCII Character Sets
+        const ASCII_SETS = {
+            blocks: [' ', '░', '▒', '▓', '█'],
+            dots: [' ', '·', '•', '●', '⬤'],
+            lines: [' ', '-', '=', '≡', '█'],
+            geometric: [' ', '△', '▢', '◆', '●']
+        };
+        
+        let video, canvas, ctx, asciiOutput;
+        let contrast = 2.0, brightness = 1.2;
+        let isFlipped = true, isNegative = false;
+        let currentTheme = 'classic', currentCharset = 'blocks';
+        let animationId;
+        let lastFrameTime = 0, frameCount = 0, fps = 0;
+        let lastAsciiTime = 0, asciiFrameCount = 0, asciiFps = 0;
+        
+        // GIF Recording
+        let isRecording = false;
+        let gif = null;
+        let recordingStartTime = 0;
+        const RECORDING_DURATION = 3000; // 3 seconds
+        const RECORDING_FPS = 10; // 10 fps for GIF
+        let framesCaptured = 0;
+        
+        // Time variable for animations
+        let time = 0;
+        
+        function initCamera() {
+            video = document.getElementById('video');
+            canvas = document.getElementById('hiddenCanvas');
+            ctx = canvas.getContext('2d');
+            asciiOutput = document.getElementById('asciiOutput');
+            
+            console.log('Requesting camera access...');
+            
+            // Try different camera constraints
+            const constraints = [
+                {
+                    video: {
+                        facingMode: 'user',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                },
+                {
+                    video: {
+                        facingMode: 'user',
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: false
+                },
+                {
+                    video: true,
+                    audio: false
+                }
+            ];
+            
+            tryCamera(0);
+            
+            function tryCamera(index) {
+                if (index >= constraints.length) {
+                    showError('Unable to access camera with any settings. Please check your camera permissions.');
+                    return;
+                }
+                
+                navigator.mediaDevices.getUserMedia(constraints[index])
+                .then(stream => {
+                    console.log(`Camera access granted with constraint set ${index + 1}`);
+                    video.srcObject = stream;
+                    
+                    // Set video properties
+                    video.muted = true;
+                    video.autoplay = true;
+                    video.playsInline = true;
+                    
+                    // Force video to play
+                    const playPromise = video.play();
+                    if (playPromise !== undefined) {
+                        playPromise.then(() => {
+                            console.log('Video playing successfully');
+                        }).catch(e => {
+                            console.error('Video play failed:', e);
+                            // Try next constraint if video won't play
+                            stream.getTracks().forEach(track => track.stop());
+                            tryCamera(index + 1);
+                        });
+                    }
+                    
+                    video.addEventListener('loadedmetadata', () => {
+                        console.log('Video metadata loaded:', video.videoWidth, 'x', video.videoHeight);
+                        // Set canvas size based on video dimensions
+                        const aspectRatio = video.videoHeight / video.videoWidth;
+                        canvas.width = Math.floor(window.innerWidth * 0.95); // 95vw
+                        canvas.height = Math.floor(canvas.width * aspectRatio);
+                        
+                        document.getElementById('permissionScreen').style.display = 'none';
+                        startProcessing();
+                    });
+                    
+                    video.addEventListener('canplay', () => {
+                        console.log('Video can play');
+                    });
+                    
+                    video.addEventListener('playing', () => {
+                        console.log('Video is playing');
+                    });
+                    
+                    // Timeout fallback - try next constraint if video doesn't start in 3 seconds
+                    setTimeout(() => {
+                        if (video.videoWidth === 0 || video.videoHeight === 0) {
+                            console.log('Video not displaying, trying next constraint...');
+                            stream.getTracks().forEach(track => track.stop());
+                            tryCamera(index + 1);
+                        }
+                    }, 3000);
+                })
+                .catch(err => {
+                    console.error(`Camera constraint ${index + 1} failed:`, err);
+                    tryCamera(index + 1);
+                });
+            }
+        }
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+        
+        function startProcessing() {
+            processFrame();
+        }
+        
+        function processFrame() {
+            if (!video.videoWidth || !video.videoHeight) {
+                animationId = requestAnimationFrame(processFrame);
+                return;
+            }
+            
+            // Calculate dimensions based on the fixed ASCII box size
+            const boxWidth = Math.min(window.innerWidth * 0.8, 800); // 80vw max 800px
+            const boxHeight = Math.min(window.innerHeight * 0.6, 600); // 60vh max 600px
+            
+            // Calculate character dimensions based on font size and spacing
+            const charWidth = 4 * 0.6; // font-size * character width ratio
+            const charHeight = 4 * 0.7; // font-size * line-height
+            
+            // Calculate how many characters can fit in the box
+            const maxCharsWidth = Math.floor((boxWidth - 40) / charWidth); // Subtract padding
+            const maxCharsHeight = Math.floor((boxHeight - 40) / charHeight); // Subtract padding
+            
+            // Use these dimensions for the canvas
+            canvas.width = maxCharsWidth;
+            canvas.height = maxCharsHeight;
+            
+            // Draw video frame to canvas
+            ctx.save();
+            
+            if (isFlipped) {
+                ctx.scale(-1, 1);
+                ctx.translate(-canvas.width, 0);
+            }
+            
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            ctx.restore();
+            
+            // Get image data
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            // Convert to ASCII
+            const asciiArt = convertToASCII(imageData);
+            if (asciiArt) {
+                asciiOutput.innerHTML = asciiArt;
+                
+                // Set theme class if not already set
+                if (!asciiOutput.className) {
+                    asciiOutput.className = `theme-${currentTheme}`;
+                }
+                
+                // Capture frame for GIF recording
+                captureFrame();
+            }
+            
+            time += 0.1;
+            animationId = requestAnimationFrame(processFrame);
+        }
+        
+        function convertToASCII(imageData) {
+            const data = imageData.data;
+            const width = imageData.width;
+            const height = imageData.height;
+            let asciiArt = '';
+            
+            // Pre-calculate brightness multipliers for performance
+            const contrastFactor = contrast;
+            const brightnessFactor = brightness;
+            const currentChars = ASCII_SETS[currentCharset];
+            
+            for (let y = 0; y < height; y++) {
+                let line = '';
+                for (let x = 0; x < width; x++) {
+                    const index = (y * width + x) * 4;
+                    const r = data[index];
+                    const g = data[index + 1];
+                    const b = data[index + 2];
+                    
+                    // Calculate brightness with user adjustments (optimized)
+                    let pixelBrightness = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
+                    pixelBrightness = Math.pow(pixelBrightness, 1/contrastFactor) * brightnessFactor;
+                    pixelBrightness = Math.max(0, Math.min(1, pixelBrightness));
+                    
+                    // Apply negative mode
+                    if (isNegative) {
+                        pixelBrightness = 1 - pixelBrightness;
+                    }
+                    
+                    // Map brightness to ASCII character
+                    const charIndex = Math.min(4, Math.floor(pixelBrightness * 5));
+                    const char = currentChars[charIndex];
+                    
+                    line += `<span class="ascii-char-${charIndex}">${char}</span>`;
+                }
+                asciiArt += line + '\n';
+            }
+            
+            return asciiArt;
+        }
+        
+        function takeScreenshot() {
+            // Get current ASCII content
+            const asciiContent = asciiOutput.textContent || asciiOutput.innerText;
+            if (!asciiContent) {
+                alert('No ASCII content to download!');
+                return;
+            }
+            
+            // Create a larger canvas for high-quality screenshot
+            const screenshotCanvas = document.createElement('canvas');
+            const screenshotCtx = screenshotCanvas.getContext('2d');
+            
+            const scale = 2; // Scale factor for higher resolution
+            const fontSize = 8; // Larger font for download
+            screenshotCanvas.width = canvas.width * fontSize * 0.6 * scale;
+            screenshotCanvas.height = canvas.height * fontSize * 0.7 * scale;
+            
+            // Set up canvas for ASCII rendering
+            screenshotCtx.fillStyle = '#001133';
+            screenshotCtx.fillRect(0, 0, screenshotCanvas.width, screenshotCanvas.height);
+            screenshotCtx.font = `${fontSize * scale}px "Courier New", monospace`;
+            screenshotCtx.textAlign = 'left';
+            screenshotCtx.textBaseline = 'top';
+            
+            // Get theme colors
+            const themeColors = {
+                classic: ['#223344', '#445588', '#7799cc', '#ccddff', '#ffffff'],
+                matrix: ['#001100', '#003300', '#00ff00', '#66ff66', '#ffffff'],
+                amber: ['#331100', '#663300', '#ff6600', '#ff9944', '#ffcc88'],
+                rainbow: ['#440044', '#8800ff', '#0088ff', '#00ff88', '#ff8800']
+            };
+            
+            // Render ASCII with colors
+            const lines = asciiContent.split('\n');
+            const colors = themeColors[currentTheme];
+            const currentChars = ASCII_SETS[currentCharset];
+            
+            for (let y = 0; y < lines.length; y++) {
+                if (!lines[y]) continue;
+                for (let x = 0; x < lines[y].length; x++) {
+                    const char = lines[y][x];
+                    const charIndex = currentChars.indexOf(char);
+                    
+                    screenshotCtx.fillStyle = colors[charIndex] || colors[2]; // Default to middle color
+                    screenshotCtx.fillText(
+                        char, 
+                        x * fontSize * 0.6 * scale, 
+                        y * fontSize * 0.7 * scale
+                    );
+                }
+            }
+            
+            // Download screenshot
+            screenshotCanvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `ascii-selfie-${currentTheme}-${currentCharset}-${Date.now()}.png`;
+                a.click();
+                URL.revokeObjectURL(url);
+            });
+        }
+        
+        function createGIF() {
+            if (!gif || framesCaptured === 0) {
+                // Reset button if no frames captured
+                const recordBtn = document.getElementById('recordBtn');
+                recordBtn.textContent = 'Record GIF';
+                recordBtn.disabled = false;
+                return;
+            }
+            
+            // Render the GIF
+            gif.render();
+        }
+        
+        function captureFrame() {
+            if (!isRecording || !gif) return;
+            
+            const currentTime = performance.now();
+            const elapsed = currentTime - recordingStartTime;
+            
+            // Capture at the specified FPS
+            if (elapsed >= (framesCaptured * (1000 / RECORDING_FPS))) {
+                // Create a canvas to capture the ASCII output as an image
+                const captureCanvas = document.createElement('canvas');
+                const captureCtx = captureCanvas.getContext('2d');
+                
+                // Set canvas size (smaller for GIF efficiency)
+                const scale = 1;
+                captureCanvas.width = 400 * scale;
+                captureCanvas.height = 300 * scale;
+                
+                // Get theme colors
+                const themeColors = {
+                    classic: ['#223344', '#445588', '#7799cc', '#ccddff', '#ffffff'],
+                    matrix: ['#001100', '#003300', '#00ff00', '#66ff66', '#ffffff'],
+                    amber: ['#331100', '#663300', '#ff6600', '#ff9944', '#ffcc88'],
+                    rainbow: ['#440044', '#8800ff', '#0088ff', '#00ff88', '#ff8800']
+                };
+                
+                // Set background based on theme
+                const bgColors = {
+                    classic: '#001133',
+                    matrix: '#000000',
+                    amber: '#110800',
+                    rainbow: '#220022'
+                };
+                
+                captureCtx.fillStyle = bgColors[currentTheme] || '#001133';
+                captureCtx.fillRect(0, 0, captureCanvas.width, captureCanvas.height);
+                
+                // Set up text rendering
+                const fontSize = 3 * scale;
+                captureCtx.font = `${fontSize}px "Courier New", monospace`;
+                captureCtx.textAlign = 'left';
+                captureCtx.textBaseline = 'top';
+                
+                // Get ASCII content and render it
+                const asciiContent = asciiOutput.textContent || asciiOutput.innerText;
+                const lines = asciiContent.split('\n').slice(0, Math.floor(captureCanvas.height / (fontSize * 0.7)));
+                const colors = themeColors[currentTheme];
+                const currentChars = ASCII_SETS[currentCharset];
+                
+                for (let y = 0; y < lines.length; y++) {
+                    if (!lines[y]) continue;
+                    const line = lines[y].substring(0, Math.floor(captureCanvas.width / (fontSize * 0.6)));
+                    for (let x = 0; x < line.length; x++) {
+                        const char = line[x];
+                        const charIndex = currentChars.indexOf(char);
+                        
+                        captureCtx.fillStyle = colors[charIndex >= 0 ? charIndex : 2];
+                        captureCtx.fillText(
+                            char, 
+                            x * fontSize * 0.6, 
+                            y * fontSize * 0.7
+                        );
+                    }
+                }
+                
+                // Add frame to GIF
+                gif.addFrame(captureCanvas, { delay: 100 }); // 100ms delay = 10fps
+                framesCaptured++;
+                
+                // Update button text with countdown
+                const remaining = Math.ceil((RECORDING_DURATION - elapsed) / 1000);
+                if (remaining > 0) {
+                    document.getElementById('recordBtn').textContent = `Stop (${remaining}s)`;
+                }
+            }
+        }
+        
+        function toggleRecording() {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        }
+        
+        function startRecording() {
+            isRecording = true;
+            framesCaptured = 0;
+            recordingStartTime = performance.now();
+            
+            // Initialize GIF encoder
+            gif = new GIF({
+                workers: 2,
+                quality: 10,
+                width: 400,
+                height: 300,
+                workerScript: 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'
+            });
+            
+            // Set up GIF completion handler
+            gif.on('finished', function(blob) {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `ascii-camera-${currentTheme}-${currentCharset}-${Date.now()}.gif`;
+                a.click();
+                URL.revokeObjectURL(url);
+                
+                // Reset button
+                const recordBtn = document.getElementById('recordBtn');
+                recordBtn.textContent = 'Record GIF';
+                recordBtn.disabled = false;
+                recordBtn.classList.remove('recording');
+            });
+            
+            const recordBtn = document.getElementById('recordBtn');
+            recordBtn.textContent = 'Stop (3s)';
+            recordBtn.classList.add('recording');
+            
+            // Auto-stop after duration
+            setTimeout(() => {
+                if (isRecording) {
+                    stopRecording();
+                }
+            }, RECORDING_DURATION);
+        }
+        
+        function stopRecording() {
+            isRecording = false;
+            
+            const recordBtn = document.getElementById('recordBtn');
+            recordBtn.textContent = 'Creating GIF...';
+            recordBtn.classList.remove('recording');
+            recordBtn.disabled = true;
+            
+            // Create GIF from captured frames
+            createGIF();
+        }
+        
+        // Event listeners
+        document.getElementById('startBtn').addEventListener('click', initCamera);
+        
+        document.getElementById('themeSelect').addEventListener('change', (e) => {
+            currentTheme = e.target.value;
+            asciiOutput.className = `theme-${currentTheme}`;
+        });
+        
+        document.getElementById('charsetSelect').addEventListener('change', (e) => {
+            currentCharset = e.target.value;
+        });
+        
+        document.getElementById('contrastSlider').addEventListener('input', (e) => {
+            contrast = parseFloat(e.target.value);
+            document.getElementById('contrastValue').textContent = contrast.toFixed(1);
+        });
+        
+        document.getElementById('brightnessSlider').addEventListener('input', (e) => {
+            brightness = parseFloat(e.target.value);
+            document.getElementById('brightnessValue').textContent = brightness.toFixed(1);
+        });
+        
+        document.getElementById('flipBtn').addEventListener('click', () => {
+            isFlipped = !isFlipped;
+            document.getElementById('flipBtn').classList.toggle('active', isFlipped);
+        });
+        
+        document.getElementById('negativeBtn').addEventListener('click', () => {
+            isNegative = !isNegative;
+            document.getElementById('negativeBtn').classList.toggle('active', isNegative);
+        });
+        
+        document.getElementById('recordBtn').addEventListener('click', toggleRecording);
+        
+        document.getElementById('downloadBtn').addEventListener('click', takeScreenshot);
+        
+        // Handle page visibility change to pause/resume
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                if (animationId) {
+                    cancelAnimationFrame(animationId);
+                }
+            } else if (video && video.srcObject) {
+                processFrame();
+            }
+        });
+    </script>
+</body>
+</html> 
